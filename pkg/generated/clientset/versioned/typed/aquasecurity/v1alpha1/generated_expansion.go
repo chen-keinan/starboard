@@ -4,6 +4,8 @@ package v1alpha1
 
 type CISKubeBenchReportExpansion interface{}
 
+type ClusterComplianceReportExpansion interface{}
+
 type ClusterConfigAuditReportExpansion interface{}
 
 type ClusterVulnerabilityReportExpansion interface{}

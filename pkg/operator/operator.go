@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
+	"github.com/aquasecurity/starboard/pkg/compliance"
 
 	"github.com/aquasecurity/starboard/pkg/configauditreport"
 	"github.com/aquasecurity/starboard/pkg/ext"
@@ -229,6 +230,14 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 			return fmt.Errorf("unable to setup ciskubebenchreport reconciler: %w", err)
 		}
 	}
+
+	go func() {
+		rw := compliance.NewReadWriter(mgr.GetClient())
+		specs := compliance.LoadClusterComplianceSpecs()
+		for _, spec := range specs {
+			rw.Write(context.Background(), spec)
+		}
+	}()
 
 	setupLog.Info("Starting controllers manager")
 	if err := mgr.Start(ctx); err != nil {
