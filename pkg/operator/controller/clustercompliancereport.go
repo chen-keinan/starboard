@@ -1,49 +1,49 @@
 package controller
 
 import (
-	"context"
 	"fmt"
+	"github.com/aquasecurity/starboard/pkg/operator/predicate"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"time"
 
+	"context"
 	"github.com/aquasecurity/starboard/pkg/apis/aquasecurity/v1alpha1"
 	"github.com/aquasecurity/starboard/pkg/operator/etc"
-	"github.com/aquasecurity/starboard/pkg/operator/predicate"
 	"github.com/go-logr/logr"
-	"k8s.io/apimachinery/pkg/api/errors"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-type TTLReportReconciler struct {
+type ClusterComplianceReportReconciler struct {
 	logr.Logger
 	etc.Config
 	client.Client
 }
 
-func (r *TTLReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
+func (r *ClusterComplianceReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	installModePredicate, err := predicate.InstallModePredicate(r.Config)
 	if err != nil {
 		return err
 	}
 
 	err = ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.VulnerabilityReport{}, builder.WithPredicates(
+		For(&v1alpha1.ClusterComplianceReport{}, builder.WithPredicates(
 			predicate.Not(predicate.IsBeingTerminated),
 			installModePredicate)).
-		Complete(r.reconcileReport())
+		Complete(r.reconcileComplianceReport())
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (r *TTLReportReconciler) reconcileReport() reconcile.Func {
+func (r *ClusterComplianceReportReconciler) reconcileComplianceReport() reconcile.Func {
 	return func(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-		log := r.Logger.WithValues("report", req.NamespacedName)
+		log := r.Logger.WithValues("compliance report", req.NamespacedName)
 
-		report := &v1alpha1.VulnerabilityReport{}
+		report := &v1alpha1.ClusterComplianceReport{}
 		err := r.Client.Get(ctx, req.NamespacedName, report)
 		if err != nil {
 			if errors.IsNotFound(err) {
@@ -52,23 +52,22 @@ func (r *TTLReportReconciler) reconcileReport() reconcile.Func {
 			}
 			return ctrl.Result{}, fmt.Errorf("getting report from cache: %w", err)
 		}
-
-		ttlReportAnnotationStr, ok := report.Annotations[v1alpha1.TTLReportAnnotation]
+		ReportNextGenerationAnnotationStr, ok := report.Annotations[v1alpha1.ComplianceReportNextGeneration]
 		if !ok {
-			log.V(1).Info("Ignoring report without TTL set")
+			log.V(1).Info("Ignoring compliance report without next generation param set")
 			return ctrl.Result{}, nil
 		}
 
-		reportTTLTime, err := time.ParseDuration(ttlReportAnnotationStr)
+		reportTTLTime, err := time.ParseDuration(ReportNextGenerationAnnotationStr)
 		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("failed parsing %v with value %v %w", v1alpha1.TTLReportAnnotation, ttlReportAnnotationStr, err)
+			return ctrl.Result{}, fmt.Errorf("failed parsing %v with value %v %w", v1alpha1.ComplianceReportNextGeneration, ReportNextGenerationAnnotationStr, err)
 		}
 		creationTime := report.Report.UpdateTimestamp
-		ttlExpired, durationToTTLExpiration, err := intervalExceeded(reportTTLTime, creationTime.Time)
+		reportExpired, durationToNextGeneration, err := intervalExceeded(reportTTLTime, creationTime.Time)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if ttlExpired {
+		if reportExpired {
 			log.V(1).Info("Removing vulnerabilityReport with expired TTL")
 			err := r.Client.Delete(ctx, report, &client.DeleteOptions{})
 			if err != nil && !errors.IsNotFound(err) {
@@ -77,7 +76,8 @@ func (r *TTLReportReconciler) reconcileReport() reconcile.Func {
 			// Since the report is deleted there is no reason to requeue
 			return ctrl.Result{}, nil
 		}
-		log.V(1).Info("RequeueAfter", "durationToTTLExpiration", durationToTTLExpiration)
-		return ctrl.Result{RequeueAfter: durationToTTLExpiration}, nil
+		log.V(1).Info("RequeueAfter", "durationToNextGeneration", durationToNextGeneration)
+		return ctrl.Result{RequeueAfter: durationToNextGeneration}, nil
+		return ctrl.Result{}, nil
 	}
 }

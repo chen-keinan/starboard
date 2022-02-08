@@ -1,7 +1,8 @@
 package v1alpha1
 
 const (
-	TTLReportAnnotation = "starboard.aquasecurity.github.io/report-ttl"
+	TTLReportAnnotation            = "starboard.aquasecurity.github.io/report-ttl"
+	ComplianceReportNextGeneration = "starboard.aquasecurity.github.io/report-next-generation"
 )
 
 // Scanner is the spec for a scanner generating a security assessment report.
@@ -13,5 +14,17 @@ type Scanner struct {
 	Vendor string `json:"vendor"`
 
 	// Version the version of the scanner.
+	Version string `json:"version"`
+}
+
+// Compliance is the spec for a security assessment report.
+type Compliance struct {
+	// Name the name of the compliance report.
+	Name string `json:"name"`
+
+	// Description of the compliance report.
+	Description string `json:"description"`
+
+	// Version the compliance report.
 	Version string `json:"version"`
 }
