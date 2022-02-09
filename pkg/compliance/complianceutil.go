@@ -3,7 +3,7 @@ package compliance
 import (
 	"fmt"
 	"github.com/gobuffalo/packr/v2"
-	"sigs.k8s.io/yaml"
+	"gopkg.in/yaml.v2"
 )
 
 func LoadClusterComplianceSpecs() []Spec {

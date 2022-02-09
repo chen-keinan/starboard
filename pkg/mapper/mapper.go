@@ -1,14 +1,21 @@
 package mapper
 
 import (
+	"fmt"
 	"github.com/aquasecurity/starboard/pkg/apis/aquasecurity/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
 )
 
 const (
-	ID     = "id"
-	Status = "Status"
+	//Fail check status
+	Fail = "fail"
+	// Pass check status
+	Pass = "pass"
+	//KubeBench tool name as appear in spec file
+	KubeBench = "kube-bench"
+	//ConfigAudit tool name as appear in spec file
+	ConfigAudit = "config-audit"
 )
 
 type Mapper interface {
@@ -21,15 +28,15 @@ type kubeBench struct {
 type configAudit struct {
 }
 
-func ByTool(tool string) Mapper {
+func ByTool(tool string) (Mapper, error) {
 	switch tool {
-	case "kube-bench":
-		return &kubeBench{}
-	case "config-audit":
-		return &configAudit{}
+	case KubeBench:
+		return &kubeBench{}, nil
+	case ConfigAudit:
+		return &configAudit{}, nil
 	}
 	// tool is not supported
-	return nil
+	return nil, fmt.Errorf("mapper tool is not supported")
 }
 
 type CheckDetails struct {
@@ -73,9 +80,9 @@ OUTER:
 					continue
 				}
 				checkMap := make(map[string]CheckDetails)
-				status := "fail"
+				status := Fail
 				if check.Success {
-					status = "pass"
+					status = Pass
 				}
 				checkMap[check.ID] = CheckDetails{ID: check.ID, Status: status, Remediation: check.Remediation}
 				objectsMap = append(objectsMap, checkMap)

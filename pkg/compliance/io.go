@@ -4,31 +4,18 @@ import (
 	"context"
 	"fmt"
 	"github.com/aquasecurity/starboard/pkg/apis/aquasecurity/v1alpha1"
-	"github.com/aquasecurity/starboard/pkg/kube"
 	"github.com/aquasecurity/starboard/pkg/mapper"
 	"github.com/aquasecurity/starboard/pkg/starboard"
 	"github.com/emirpasic/gods/sets/hashset"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-const (
-	//KubeBench tool name as appear in spec file
-	KubeBench = "kube-bench"
-	//ConfAudit tool name as appear in spec file
-	ConfAudit = "conf-audit"
-)
-
 type Writer interface {
 	Write(ctx context.Context) error
 }
 
-type Reader interface {
-	FindByOwner(ctx context.Context, node kube.ObjectRef) (interface{}, error)
-}
-
 type ReadWriter interface {
 	Writer
-	Reader
 }
 
 type rw struct {
@@ -64,7 +51,9 @@ func (w *rw) Write(ctx context.Context, spec Spec) error {
 			continue
 		}
 		if _, ok := toolMapper[tool]; !ok {
-			toolMapper[tool] = mapper.ByTool(tool)
+			if toolMapper[tool], err = mapper.ByTool(tool); err != nil {
+				return err
+			}
 		}
 		//iterate controls
 		for _, control := range controls {
@@ -115,16 +104,16 @@ func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
 	// resource to checkIds
 	resourceChecksIds := make(map[string][]string)
 	for _, control := range spec.Controls {
-		if _, ok := toolResourceListName[control.Tool]; !ok {
-			toolResourceListName[control.Tool] = hashset.New()
+		if _, ok := toolResourceListName[control.Mapping.Tool]; !ok {
+			toolResourceListName[control.Mapping.Tool] = hashset.New()
 		}
 		if _, ok := controlResourceList[control.ID]; !ok {
 			controlResourceList[control.ID] = hashset.New()
 		}
 		for _, resource := range control.Resources {
 			controlResourceList[control.ID].Add(resource)
-			toolResourceListName[control.Tool].Add(resource)
-			for _, check := range control.Checks {
+			toolResourceListName[control.Mapping.Tool].Add(resource)
+			for _, check := range control.Mapping.Checks {
 				if _, ok := resourceChecksIds[resource]; !ok {
 					resourceChecksIds[resource] = make([]string, 0)
 				}
@@ -132,12 +121,12 @@ func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
 			}
 		}
 		// update tool control map
-		if _, ok := toolControl[control.Tool]; !ok {
-			toolControl[control.Tool] = make([]string, 0)
+		if _, ok := toolControl[control.Mapping.Tool]; !ok {
+			toolControl[control.Mapping.Tool] = make([]string, 0)
 		}
-		toolControl[control.Tool] = append(toolControl[control.Tool], control.ID)
+		toolControl[control.Mapping.Tool] = append(toolControl[control.Mapping.Tool], control.ID)
 		//update control resource list map
-		for _, check := range control.Checks {
+		for _, check := range control.Mapping.Checks {
 			if _, ok := controlCheckIds[control.ID]; !ok {
 				controlCheckIds[control.ID] = make([]string, 0)
 			}
@@ -156,11 +145,6 @@ func NewReadWriter(client client.Client) *rw {
 	return &rw{
 		client: client,
 	}
-}
-
-func (w *rw) FindByOwner(ctx context.Context, node kube.ObjectRef) (interface{}, error) {
-
-	return nil, nil
 }
 
 func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListNames map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
@@ -191,9 +175,9 @@ func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListNames
 
 func getObjListByName(toolName string) client.ObjectList {
 	switch toolName {
-	case KubeBench:
+	case mapper.KubeBench:
 		return &v1alpha1.CISKubeBenchReportList{}
-	case ConfAudit:
+	case mapper.ConfigAudit:
 		return &v1alpha1.ConfigAuditReportList{}
 	default:
 		return nil

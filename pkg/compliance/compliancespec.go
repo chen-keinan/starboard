@@ -1,5 +1,7 @@
 package compliance
 
+import "github.com/emirpasic/gods/sets/hashset"
+
 //Spec represent the compliance specification
 type Spec struct {
 	Name        string    `yaml:"name"`
@@ -13,11 +15,38 @@ type Control struct {
 	Name        string   `yaml:"name"`
 	Description string   `yaml:"description"`
 	Resources   []string `yaml:"resources"`
-	Tool        string   `yaml:"tool"`
-	Checks      []Check  `yaml:"checks"`
+	Mapping     Mapping  `yaml:"mapping"`
 }
 
 //Check represent the tool who perform the control check
 type Check struct {
 	ID string `yaml:"id"`
+}
+
+//Mapping represent the tool who perform the control check
+type Mapping struct {
+	Tool   string  `yaml:"tool"`
+	Checks []Check `yaml:"checks"`
+}
+
+//UnmarshalYAML over unmarshall to add logic
+func (at *Control) UnmarshalYAML(unmarshal func(interface{}) error) error {
+	type control Control
+	if err := unmarshal((*control)(at)); err != nil {
+		return err
+	}
+	set := hashset.New()
+	updatedResources := make([]string, 0)
+	for _, resource := range at.Resources {
+		if resource == "Workload" {
+			set.Add("Pod", "ReplicationController", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob")
+		} else {
+			set.Add(resource)
+		}
+	}
+	for _, setResource := range set.Values() {
+		updatedResources = append(updatedResources, setResource.(string))
+	}
+	at.Resources = updatedResources
+	return nil
 }
