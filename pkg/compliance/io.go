@@ -11,6 +11,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	//KubeBench tool name as appear in spec file
+	KubeBench = "kube-bench"
+	//ConfAudit tool name as appear in spec file
+	ConfAudit = "conf-audit"
+)
+
 type Writer interface {
 	Write(ctx context.Context) error
 }
@@ -35,16 +42,16 @@ type ControlsSummary struct {
 }
 
 type SpecDataMapping struct {
-	toolResourceListName map[string]*hashset.Set
-	toolControl          map[string][]string
-	controlResourceList  map[string]*hashset.Set
-	controlCheckIds      map[string][]string
-	resourceCheckIds     map[string][]string
+	toolResourceListNames map[string]*hashset.Set
+	toolControl           map[string][]string
+	controlResourceList   map[string]*hashset.Set
+	controlCheckIds       map[string][]string
+	resourceCheckIds      map[string][]string
 }
 
 func (w *rw) Write(ctx context.Context, spec Spec) error {
 	smd := w.populateSpecDataToMaps(spec)
-	toolResourceMap, err := w.findComplianceToolToResource(ctx, smd.toolResourceListName)
+	toolResourceMap, err := w.findComplianceToolToResource(ctx, smd.toolResourceListNames)
 	if err != nil {
 		return err
 	}
@@ -138,11 +145,11 @@ func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
 		}
 	}
 	return &SpecDataMapping{
-		toolControl:          toolControl,
-		toolResourceListName: toolResourceListName,
-		controlResourceList:  controlResourceList,
-		controlCheckIds:      controlCheckIds,
-		resourceCheckIds:     resourceChecksIds}
+		toolControl:           toolControl,
+		toolResourceListNames: toolResourceListName,
+		controlResourceList:   controlResourceList,
+		controlCheckIds:       controlCheckIds,
+		resourceCheckIds:      resourceChecksIds}
 }
 
 func NewReadWriter(client client.Client) *rw {
@@ -156,16 +163,9 @@ func (w *rw) FindByOwner(ctx context.Context, node kube.ObjectRef) (interface{},
 	return nil, nil
 }
 
-func (w *rw) mapReportData(spec Spec) v1alpha1.ClusterComplianceReportData {
-	crd := v1alpha1.ClusterComplianceReportData{}
-	crd.ControlChecks = make([]v1alpha1.ControlCheck, 0)
-
-	return crd
-}
-
-func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListName map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
+func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListNames map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
 	toolResource := make(map[string]map[string]client.ObjectList)
-	for tool, objNames := range resourceListName {
+	for tool, objNames := range resourceListNames {
 		for _, objName := range objNames.Values() {
 			objNameString, ok := objName.(string)
 			if !ok {
@@ -191,9 +191,9 @@ func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListName 
 
 func getObjListByName(toolName string) client.ObjectList {
 	switch toolName {
-	case "kube-bench":
+	case KubeBench:
 		return &v1alpha1.CISKubeBenchReportList{}
-	case "conf-audit":
+	case ConfAudit:
 		return &v1alpha1.ConfigAuditReportList{}
 	default:
 		return nil

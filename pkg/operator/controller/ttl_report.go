@@ -64,10 +64,7 @@ func (r *TTLReportReconciler) reconcileReport() reconcile.Func {
 			return ctrl.Result{}, fmt.Errorf("failed parsing %v with value %v %w", v1alpha1.TTLReportAnnotation, ttlReportAnnotationStr, err)
 		}
 		creationTime := report.Report.UpdateTimestamp
-		ttlExpired, durationToTTLExpiration, err := intervalExceeded(reportTTLTime, creationTime.Time)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+		ttlExpired, durationToTTLExpiration := intervalExceeded(reportTTLTime, creationTime.Time)
 		if ttlExpired {
 			log.V(1).Info("Removing vulnerabilityReport with expired TTL")
 			err := r.Client.Delete(ctx, report, &client.DeleteOptions{})

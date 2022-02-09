@@ -63,17 +63,12 @@ func (r *ClusterComplianceReportReconciler) reconcileComplianceReport() reconcil
 			return ctrl.Result{}, fmt.Errorf("failed parsing %v with value %v %w", v1alpha1.ComplianceReportNextGeneration, ReportNextGenerationAnnotationStr, err)
 		}
 		creationTime := report.Report.UpdateTimestamp
-		reportExpired, durationToNextGeneration, err := intervalExceeded(reportTTLTime, creationTime.Time)
+		reportExpired, durationToNextGeneration := intervalExceeded(reportTTLTime, creationTime.Time)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
 		if reportExpired {
-			log.V(1).Info("Removing vulnerabilityReport with expired TTL")
-			err := r.Client.Delete(ctx, report, &client.DeleteOptions{})
-			if err != nil && !errors.IsNotFound(err) {
-				return ctrl.Result{}, err
-			}
-			// Since the report is deleted there is no reason to requeue
+			//@Todo update report
 			return ctrl.Result{}, nil
 		}
 		log.V(1).Info("RequeueAfter", "durationToNextGeneration", durationToNextGeneration)
