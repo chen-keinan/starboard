@@ -2,12 +2,14 @@ package compliance
 
 import (
 	"context"
-	"fmt"
 	"github.com/aquasecurity/starboard/pkg/apis/aquasecurity/v1alpha1"
-	"github.com/aquasecurity/starboard/pkg/mapper"
-	"github.com/aquasecurity/starboard/pkg/starboard"
+	"github.com/aquasecurity/starboard/pkg/plugin/compliance"
 	"github.com/emirpasic/gods/sets/hashset"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"time"
 )
 
 type Writer interface {
@@ -29,102 +31,102 @@ type ControlsSummary struct {
 }
 
 type SpecDataMapping struct {
-	toolResourceListNames map[string]*hashset.Set
-	toolControl           map[string][]string
-	controlResourceList   map[string]*hashset.Set
-	controlCheckIds       map[string][]string
-	resourceCheckIds      map[string][]string
+	toolResourceListNames  map[string]*hashset.Set
+	toolControl            map[string][]string
+	controlIDControlObject map[string]Control
+	controlCheckIds        map[string][]string
+	resourceCheckIds       map[string][]string
 }
 
 func (w *rw) Write(ctx context.Context, spec Spec) error {
 	smd := w.populateSpecDataToMaps(spec)
-	toolResourceMap, err := w.findComplianceToolToResource(ctx, smd.toolResourceListNames)
+	toolResourceMap, err := compliance.FindComplianceToolToResource(w.client, ctx, smd.toolResourceListNames)
 	if err != nil {
 		return err
 	}
-	resourceRowData := make(map[string][]map[string]mapper.CheckDetails)
-	toolMapper := make(map[string]mapper.Mapper)
-	controlsSummary := make([]ControlsSummary, 0)
-	for tool, controls := range smd.toolControl {
-		resourceMap, ok := toolResourceMap[tool]
-		if !ok {
-			continue
-		}
-		if _, ok := toolMapper[tool]; !ok {
-			if toolMapper[tool], err = mapper.ByTool(tool); err != nil {
+	idsAllCheckResults := make(map[string][]*compliance.ToolCheckResult)
+	for tool, resourceListMap := range toolResourceMap {
+		for resourceName, resourceList := range resourceListMap {
+			mapper, err := compliance.ByTool(tool)
+			if err != nil {
 				return err
 			}
-		}
-		//iterate controls
-		for _, control := range controls {
-			// fetch resources row data by tool
-			for _, resourceName := range smd.controlResourceList[control].Values() {
-				rName := resourceName.(string)
-				if _, ok := resourceRowData[rName]; !ok {
-					resourceRowData[rName] = toolMapper[tool].MapReportDataToMap(resourceMap[rName], smd.resourceCheckIds[resourceName.(string)])
+			idCheckResultMap := mapper.MapReportDataToMap(resourceName, resourceList)
+			if idCheckResultMap == nil {
+				continue
+			}
+			for id, toolCheckResult := range idCheckResultMap {
+				if _, ok := idsAllCheckResults[id]; !ok {
+					idsAllCheckResults[id] = make([]*compliance.ToolCheckResult, 0)
 				}
-				for _, check := range smd.controlCheckIds[control] {
-					pass := 0.0
-					total := 0.0
-					if len(resourceRowData[rName]) == 0 {
+				idsAllCheckResults[id] = append(idsAllCheckResults[id], toolCheckResult)
+			}
+		}
+	}
+	controlChecks := make([]v1alpha1.ControlCheck, 0)
+	for controlID, checkIds := range smd.controlCheckIds {
+		var passTotal, failTotal, total int
+		for _, checkId := range checkIds {
+			results, ok := idsAllCheckResults[checkId]
+			if ok {
+				for _, checkResult := range results {
+					for _, crd := range checkResult.Details {
+						switch crd.Status {
+						case compliance.Pass, compliance.Warn:
+							passTotal++
+						case compliance.Fail:
+							failTotal++
+						}
 						total++
 					}
-					for _, row := range resourceRowData[rName] {
-						if _, ok := row[check]; !ok {
-							continue
-						}
-						if row[check].Status == "pass" {
-							pass++
-						}
-						total++
-					}
-					if pass == 0 && total == 0 {
-						total = 1
-					}
-					controlsSummary = append(controlsSummary, ControlsSummary{ID: control, Pass: float32(pass), Total: float32(total)})
 				}
 			}
 		}
-		for _, control := range controlsSummary {
-			fmt.Println(fmt.Sprintf("control:%s  compliance:%f", control.ID, control.Pass/control.Total*100))
-		}
+		control := smd.controlIDControlObject[controlID]
+		controlChecks = append(controlChecks, v1alpha1.ControlCheck{ID: controlID, Name: control.Name, Description: control.Description, PassTotal: passTotal, FailTotal: failTotal})
 	}
-	return nil
+	report := v1alpha1.ClusterComplianceReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: spec.Name,
+		},
+		Report: v1alpha1.ClusterComplianceReportData{UpdateTimestamp: metav1.NewTime(time.Now()), Type: v1alpha1.Compliance{Name: spec.Name, Description: spec.Description, Version: "1.0"}, ControlChecks: controlChecks},
+	}
+	// TODO Try CreateOrUpdate method
+	var existing v1alpha1.ClusterComplianceReport
+	err = w.client.Get(ctx, types.NamespacedName{
+		Name: spec.Name,
+	}, &existing)
+
+	if err == nil {
+		copied := existing.DeepCopy()
+		copied.Labels = report.Labels
+		copied.Report = report.Report
+
+		return w.client.Update(ctx, copied)
+	}
+
+	if errors.IsNotFound(err) {
+		return w.client.Create(ctx, &report)
+	}
+
+	return err
 }
 
 func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
-	//tool to control map
-	toolControl := make(map[string][]string, 0)
 	//control to resource list map
-	controlResourceList := make(map[string]*hashset.Set)
+	controlIDControlObject := make(map[string]Control)
 	//control to checks map
 	controlCheckIds := make(map[string][]string)
 	//tool to resource list map
 	toolResourceListName := make(map[string]*hashset.Set)
-	// resource to checkIds
-	resourceChecksIds := make(map[string][]string)
 	for _, control := range spec.Controls {
 		if _, ok := toolResourceListName[control.Mapping.Tool]; !ok {
 			toolResourceListName[control.Mapping.Tool] = hashset.New()
 		}
-		if _, ok := controlResourceList[control.ID]; !ok {
-			controlResourceList[control.ID] = hashset.New()
-		}
 		for _, resource := range control.Resources {
-			controlResourceList[control.ID].Add(resource)
 			toolResourceListName[control.Mapping.Tool].Add(resource)
-			for _, check := range control.Mapping.Checks {
-				if _, ok := resourceChecksIds[resource]; !ok {
-					resourceChecksIds[resource] = make([]string, 0)
-				}
-				resourceChecksIds[resource] = append(resourceChecksIds[resource], check.ID)
-			}
 		}
-		// update tool control map
-		if _, ok := toolControl[control.Mapping.Tool]; !ok {
-			toolControl[control.Mapping.Tool] = make([]string, 0)
-		}
-		toolControl[control.Mapping.Tool] = append(toolControl[control.Mapping.Tool], control.ID)
+		controlIDControlObject[control.ID] = control
 		//update control resource list map
 		for _, check := range control.Mapping.Checks {
 			if _, ok := controlCheckIds[control.ID]; !ok {
@@ -134,53 +136,14 @@ func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
 		}
 	}
 	return &SpecDataMapping{
-		toolControl:           toolControl,
-		toolResourceListNames: toolResourceListName,
-		controlResourceList:   controlResourceList,
-		controlCheckIds:       controlCheckIds,
-		resourceCheckIds:      resourceChecksIds}
+		toolResourceListNames:  toolResourceListName,
+		controlIDControlObject: controlIDControlObject,
+		controlCheckIds:        controlCheckIds}
 }
 
 func NewReadWriter(client client.Client) *rw {
 	return &rw{
 		client: client,
-	}
-}
-
-func (w *rw) findComplianceToolToResource(ctx context.Context, resourceListNames map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
-	toolResource := make(map[string]map[string]client.ObjectList)
-	for tool, objNames := range resourceListNames {
-		for _, objName := range objNames.Values() {
-			objNameString, ok := objName.(string)
-			if !ok {
-				continue
-			}
-			labels := map[string]string{
-				starboard.LabelResourceKind: objNameString,
-			}
-			matchingLabel := client.MatchingLabels(labels)
-			objList := getObjListByName(tool)
-			err := w.client.List(ctx, objList, matchingLabel)
-			if err != nil {
-				continue
-			}
-			if _, ok := toolResource[tool]; !ok {
-				toolResource[tool] = make(map[string]client.ObjectList)
-			}
-			toolResource[tool][objNameString] = objList
-		}
-	}
-	return toolResource, nil
-}
-
-func getObjListByName(toolName string) client.ObjectList {
-	switch toolName {
-	case mapper.KubeBench:
-		return &v1alpha1.CISKubeBenchReportList{}
-	case mapper.ConfigAudit:
-		return &v1alpha1.ConfigAuditReportList{}
-	default:
-		return nil
 	}
 }
 
