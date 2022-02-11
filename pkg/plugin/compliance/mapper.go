@@ -96,7 +96,7 @@ func (ac configAudit) MapReportDataToMap(objType string, objList client.ObjectLi
 	return toolCheckResultMap
 }
 
-func FindComplianceToolToResource(cli client.Client, ctx context.Context, resourceListNames map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
+func MapComplianceToolToResource(cli client.Client, ctx context.Context, resourceListNames map[string]*hashset.Set) (map[string]map[string]client.ObjectList, error) {
 	toolResource := make(map[string]map[string]client.ObjectList)
 	for tool, objNames := range resourceListNames {
 		for _, objName := range objNames.Values() {

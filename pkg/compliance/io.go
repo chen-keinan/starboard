@@ -32,42 +32,60 @@ type ControlsSummary struct {
 
 type SpecDataMapping struct {
 	toolResourceListNames  map[string]*hashset.Set
-	toolControl            map[string][]string
 	controlIDControlObject map[string]Control
 	controlCheckIds        map[string][]string
-	resourceCheckIds       map[string][]string
 }
 
 func (w *rw) Write(ctx context.Context, spec Spec) error {
+	// map spec to key/value map for easy processing
 	smd := w.populateSpecDataToMaps(spec)
-	toolResourceMap, err := compliance.FindComplianceToolToResource(w.client, ctx, smd.toolResourceListNames)
+	// map compliance tool to resource data
+	toolResourceMap, err := compliance.MapComplianceToolToResource(w.client, ctx, smd.toolResourceListNames)
 	if err != nil {
 		return err
 	}
-	idsAllCheckResults := make(map[string][]*compliance.ToolCheckResult)
-	for tool, resourceListMap := range toolResourceMap {
-		for resourceName, resourceList := range resourceListMap {
-			mapper, err := compliance.ByTool(tool)
-			if err != nil {
-				return err
-			}
-			idCheckResultMap := mapper.MapReportDataToMap(resourceName, resourceList)
-			if idCheckResultMap == nil {
-				continue
-			}
-			for id, toolCheckResult := range idCheckResultMap {
-				if _, ok := idsAllCheckResults[id]; !ok {
-					idsAllCheckResults[id] = make([]*compliance.ToolCheckResult, 0)
-				}
-				idsAllCheckResults[id] = append(idsAllCheckResults[id], toolCheckResult)
-			}
-		}
+	// organized data by check id and it aggregated results
+	checkIdsToResults, err := w.checkIdsToResults(toolResourceMap)
+	if err != nil {
+		return err
 	}
+	// map tool checks results to control check results
+	controlChecks := w.controlChecksByToolChecks(smd, checkIdsToResults)
+	// publish compliance report
+	return w.createComplianceReport(ctx, spec, controlChecks)
+}
+
+func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlChecks []v1alpha1.ControlCheck) error {
+	report := v1alpha1.ClusterComplianceReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: spec.Name,
+		},
+		Report: v1alpha1.ClusterComplianceReportData{UpdateTimestamp: metav1.NewTime(time.Now()), Type: v1alpha1.Compliance{Name: spec.Name, Description: spec.Description, Version: "1.0"}, ControlChecks: controlChecks},
+	}
+	var existing v1alpha1.ClusterComplianceReport
+	err := w.client.Get(ctx, types.NamespacedName{
+		Name: spec.Name,
+	}, &existing)
+
+	if err == nil {
+		copied := existing.DeepCopy()
+		copied.Labels = report.Labels
+		copied.Report = report.Report
+
+		return w.client.Update(ctx, copied)
+	}
+	if errors.IsNotFound(err) {
+		return w.client.Create(ctx, &report)
+	}
+	return err
+}
+
+func (w *rw) controlChecksByToolChecks(smd *SpecDataMapping, checkIdsToResults map[string][]*compliance.ToolCheckResult) []v1alpha1.ControlCheck {
 	controlChecks := make([]v1alpha1.ControlCheck, 0)
 	for controlID, checkIds := range smd.controlCheckIds {
 		var passTotal, failTotal, total int
 		for _, checkId := range checkIds {
-			results, ok := idsAllCheckResults[checkId]
+			results, ok := checkIdsToResults[checkId]
 			if ok {
 				for _, checkResult := range results {
 					for _, crd := range checkResult.Details {
@@ -85,31 +103,30 @@ func (w *rw) Write(ctx context.Context, spec Spec) error {
 		control := smd.controlIDControlObject[controlID]
 		controlChecks = append(controlChecks, v1alpha1.ControlCheck{ID: controlID, Name: control.Name, Description: control.Description, PassTotal: passTotal, FailTotal: failTotal})
 	}
-	report := v1alpha1.ClusterComplianceReport{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: spec.Name,
-		},
-		Report: v1alpha1.ClusterComplianceReportData{UpdateTimestamp: metav1.NewTime(time.Now()), Type: v1alpha1.Compliance{Name: spec.Name, Description: spec.Description, Version: "1.0"}, ControlChecks: controlChecks},
+	return controlChecks
+}
+
+func (w *rw) checkIdsToResults(toolResourceMap map[string]map[string]client.ObjectList) (map[string][]*compliance.ToolCheckResult, error) {
+	checkIdsToResults := make(map[string][]*compliance.ToolCheckResult)
+	for tool, resourceListMap := range toolResourceMap {
+		for resourceName, resourceList := range resourceListMap {
+			mapper, err := compliance.ByTool(tool)
+			if err != nil {
+				return nil, err
+			}
+			idCheckResultMap := mapper.MapReportDataToMap(resourceName, resourceList)
+			if idCheckResultMap == nil {
+				continue
+			}
+			for id, toolCheckResult := range idCheckResultMap {
+				if _, ok := checkIdsToResults[id]; !ok {
+					checkIdsToResults[id] = make([]*compliance.ToolCheckResult, 0)
+				}
+				checkIdsToResults[id] = append(checkIdsToResults[id], toolCheckResult)
+			}
+		}
 	}
-	// TODO Try CreateOrUpdate method
-	var existing v1alpha1.ClusterComplianceReport
-	err = w.client.Get(ctx, types.NamespacedName{
-		Name: spec.Name,
-	}, &existing)
-
-	if err == nil {
-		copied := existing.DeepCopy()
-		copied.Labels = report.Labels
-		copied.Report = report.Report
-
-		return w.client.Update(ctx, copied)
-	}
-
-	if errors.IsNotFound(err) {
-		return w.client.Create(ctx, &report)
-	}
-
-	return err
+	return checkIdsToResults, nil
 }
 
 func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
