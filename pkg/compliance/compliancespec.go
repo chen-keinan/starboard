@@ -6,6 +6,7 @@ import "github.com/emirpasic/gods/sets/hashset"
 type Spec struct {
 	Name        string    `yaml:"name"`
 	Description string    `yaml:"description"`
+	Version     string    `yaml:"version"`
 	Controls    []Control `yaml:"controls"`
 }
 
