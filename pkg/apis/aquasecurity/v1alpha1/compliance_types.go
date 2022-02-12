@@ -5,9 +5,8 @@ import (
 )
 
 type ClusterComplianceSummary struct {
-	PassCount    int `json:"passCount"`
-	FailCount    int `json:"failCount"`
-	WarningCount int `json:"warningCount"`
+	PassCount int `json:"passCount"`
+	FailCount int `json:"failCount"`
 }
 
 // +genclient
@@ -30,10 +29,10 @@ type ClusterComplianceReportList struct {
 }
 
 type ClusterComplianceReportData struct {
-	UpdateTimestamp metav1.Time `json:"updateTimestamp"`
-	Type            Compliance  `json:"type"`
-	// Checks provides results of conducting audit steps.
-	ControlChecks []ControlCheck `json:"control_check"`
+	UpdateTimestamp metav1.Time              `json:"updateTimestamp"`
+	Type            Compliance               `json:"type"`
+	Summary         ClusterComplianceSummary `json:"summary"`
+	ControlChecks   []ControlCheck           `json:"control_check"`
 }
 
 // ControlCheck provides the result of conducting a single audit step.
