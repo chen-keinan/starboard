@@ -25,11 +25,6 @@ spec:
           name: Fail
           priority: 1
           description: The number of checks that failed with Danger status
-        - jsonPath: .report.summary.warningCount
-          type: integer
-          name: Warning
-          priority: 1
-          description: The number of checks that failed with Warning status
         - jsonPath: .report.summary.passCount
           type: integer
           name: Pass
@@ -47,4 +42,4 @@ spec:
     listKind: ClusterComplianceReportsList
     categories: []
     shortNames:
-      - nsa 
+      - compliance
