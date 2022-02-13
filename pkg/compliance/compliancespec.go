@@ -1,13 +1,18 @@
 package compliance
 
-import "github.com/emirpasic/gods/sets/hashset"
+import (
+	"github.com/emirpasic/gods/sets/hashset"
+	"time"
+)
 
 //Spec represent the compliance specification
 type Spec struct {
-	Name        string    `yaml:"name"`
-	Description string    `yaml:"description"`
-	Version     string    `yaml:"version"`
-	Controls    []Control `yaml:"controls"`
+	Kind               string        `yaml:"kind"`
+	Name               string        `yaml:"name"`
+	Description        string        `yaml:"description"`
+	GenerationInterval time.Duration `yaml:"generationInterval"`
+	Version            string        `yaml:"version"`
+	Controls           []Control     `yaml:"controls"`
 }
 
 //Control represent the cps controls data and mapping checks

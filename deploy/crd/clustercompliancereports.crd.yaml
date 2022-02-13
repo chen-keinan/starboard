@@ -12,7 +12,7 @@ spec:
       served: true
       storage: true
       additionalPrinterColumns:
-        - jsonPath: .report.type.name
+        - jsonPath: .report.type.kind
           type: string
           name: report
           description: The name of the complience report
@@ -39,7 +39,7 @@ spec:
     singular: clustercompliancereport
     plural: clustercompliancereports
     kind: ClusterComplianceReport
-    listKind: ClusterComplianceReportsList
+    listKind: ClusterComplianceReportList
     categories: []
     shortNames:
       - compliance

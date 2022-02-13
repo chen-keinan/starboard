@@ -20,8 +20,9 @@ type Scanner struct {
 // Compliance is the spec for a security assessment report.
 type Compliance struct {
 	// Name the name of the compliance report.
+	Kind string `json:"kind"`
+	// Name the name of the compliance report.
 	Name string `json:"name"`
-
 	// Description of the compliance report.
 	Description string `json:"description"`
 

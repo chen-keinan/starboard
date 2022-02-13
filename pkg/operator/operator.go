@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/aquasecurity/starboard/pkg/compliance"
-
 	"github.com/aquasecurity/starboard/pkg/configauditreport"
 	"github.com/aquasecurity/starboard/pkg/ext"
 	"github.com/aquasecurity/starboard/pkg/kube"
@@ -20,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"time"
 )
 
 var (
@@ -235,7 +235,9 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 		rw := compliance.NewReadWriter(mgr.GetClient())
 		specs := compliance.LoadClusterComplianceSpecs()
 		for _, spec := range specs {
-			rw.Write(context.Background(), spec)
+			err := rw.Write(context.Background(), spec)
+			fmt.Println(err)
+			time.Sleep(10 * time.Second)
 		}
 	}()
 
