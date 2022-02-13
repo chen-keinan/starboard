@@ -39,6 +39,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 	// Group=aquasecurity.github.io, Version=v1alpha1
 	case v1alpha1.SchemeGroupVersion.WithResource("ciskubebenchreports"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Aquasecurity().V1alpha1().CISKubeBenchReports().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("clustercompliancedetailreports"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Aquasecurity().V1alpha1().ClusterComplianceDetailReports().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("clustercompliancereports"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Aquasecurity().V1alpha1().ClusterComplianceReports().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("clusterconfigauditreports"):

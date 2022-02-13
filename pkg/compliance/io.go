@@ -2,6 +2,7 @@ package compliance
 
 import (
 	"context"
+	"fmt"
 	"github.com/aquasecurity/starboard/pkg/apis/aquasecurity/v1alpha1"
 	"github.com/aquasecurity/starboard/pkg/plugin/compliance"
 	"github.com/emirpasic/gods/sets/hashset"
@@ -55,6 +56,11 @@ func (w *rw) Write(ctx context.Context, plugin Plugin) error {
 		if err != nil {
 			return err
 		}
+		controlCheckDetails := w.controlChecksDetailsByToolChecks(smd, checkIdsToResults)
+		err = w.createComplianceDetailReport(ctx, spec, controlChecks, controlCheckDetails, plugin)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -94,7 +100,45 @@ func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlCheck
 	if errors.IsNotFound(err) || generatingReportFirstTime(err) {
 		return w.client.Create(ctx, &report)
 	}
-	return w.client.Create(ctx, &report)
+	return nil
+}
+
+func (w *rw) createComplianceDetailReport(ctx context.Context, spec Spec, controlChecks []v1alpha1.ControlCheck, controlChecksDetails []v1alpha1.ControlCheckDetails, plugin Plugin) error {
+	var totalFail, totalPass int
+	if len(controlChecks) > 0 {
+		for _, controlCheck := range controlChecks {
+			totalFail = totalFail + controlCheck.FailTotal
+			totalPass = totalPass + controlCheck.PassTotal
+		}
+	}
+	name := strings.ToLower(fmt.Sprintf("%s-%s", spec.Name, "Details"))
+	summary := v1alpha1.ClusterComplianceDetailSummary{PassCount: totalPass, FailCount: totalFail}
+	report := v1alpha1.ClusterComplianceDetailReport{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Report: v1alpha1.ClusterComplianceDetailReportData{UpdateTimestamp: metav1.NewTime(plugin.GetKubernetesCurrentTime()), Summary: summary, Type: v1alpha1.Compliance{Kind: strings.ToLower(spec.Kind), Name: name, Description: strings.ToLower(spec.Description), Version: spec.Version}, ControlChecks: controlChecksDetails},
+	}
+	report.Annotations = map[string]string{
+		v1alpha1.ComplianceReportNextGeneration: spec.GenerationInterval.String(),
+	}
+	var existing v1alpha1.ClusterComplianceDetailReport
+	err := w.client.Get(ctx, types.NamespacedName{
+		Name: name,
+	}, &existing)
+
+	if err == nil {
+		copied := existing.DeepCopy()
+		copied.Labels = report.Labels
+		copied.Report = report.Report
+		copied.Report.UpdateTimestamp = metav1.NewTime(plugin.GetKubernetesCurrentTime())
+		return w.client.Update(ctx, copied)
+	}
+
+	if errors.IsNotFound(err) || generatingReportFirstTime(err) {
+		return w.client.Create(ctx, &report)
+	}
+	return nil
 }
 
 func generatingReportFirstTime(err error) bool {
@@ -126,6 +170,28 @@ func (w *rw) controlChecksByToolChecks(smd *SpecDataMapping, checkIdsToResults m
 		}
 		control := smd.controlIDControlObject[controlID]
 		controlChecks = append(controlChecks, v1alpha1.ControlCheck{ID: controlID, Name: control.Name, Description: control.Description, PassTotal: passTotal, FailTotal: failTotal})
+	}
+	return controlChecks
+}
+
+func (w *rw) controlChecksDetailsByToolChecks(smd *SpecDataMapping, checkIdsToResults map[string][]*compliance.ToolCheckResult) []v1alpha1.ControlCheckDetails {
+	controlChecks := make([]v1alpha1.ControlCheckDetails, 0)
+	for controlID, checkIds := range smd.controlCheckIds {
+		for _, checkId := range checkIds {
+			results, ok := checkIdsToResults[checkId]
+			if ok {
+				for _, checkResult := range results {
+					var ctt v1alpha1.ToolCheckResult
+					rds := make([]v1alpha1.ResultDetails, 0)
+					for _, crd := range checkResult.Details {
+						rds = append(rds, v1alpha1.ResultDetails{Name: crd.Name, Namespace: crd.Namespace, Status: crd.Status})
+					}
+					ctt = v1alpha1.ToolCheckResult{ID: checkResult.ID, ObjectType: checkResult.ObjectType, Remediation: checkResult.Remediation, Details: rds}
+					control := smd.controlIDControlObject[controlID]
+					controlChecks = append(controlChecks, v1alpha1.ControlCheckDetails{ID: controlID, Name: control.Name, Description: control.Description, ToolCheckResult: ctt})
+				}
+			}
+		}
 	}
 	return controlChecks
 }

@@ -3,7 +3,7 @@ kind: compliance
 name: NSA
 description: National Security Agency - Kubernetes Hardening Guidance
 version: 1.0
-generationInterval : 6h
+generationInterval : 10s
 controls:
   - name: Non-root containers
     description: ''

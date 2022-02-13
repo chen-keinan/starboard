@@ -13,6 +13,7 @@ import (
 type AquasecurityV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	CISKubeBenchReportsGetter
+	ClusterComplianceDetailReportsGetter
 	ClusterComplianceReportsGetter
 	ClusterConfigAuditReportsGetter
 	ClusterVulnerabilityReportsGetter
@@ -28,6 +29,10 @@ type AquasecurityV1alpha1Client struct {
 
 func (c *AquasecurityV1alpha1Client) CISKubeBenchReports() CISKubeBenchReportInterface {
 	return newCISKubeBenchReports(c)
+}
+
+func (c *AquasecurityV1alpha1Client) ClusterComplianceDetailReports(namespace string) ClusterComplianceDetailReportInterface {
+	return newClusterComplianceDetailReports(c, namespace)
 }
 
 func (c *AquasecurityV1alpha1Client) ClusterComplianceReports(namespace string) ClusterComplianceReportInterface {
