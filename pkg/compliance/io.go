@@ -10,11 +10,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"strings"
-	"time"
 )
 
 type Writer interface {
-	Write(ctx context.Context) error
+	Write(ctx context.Context, plugin Plugin) error
 }
 
 type ReadWriter interface {
@@ -37,30 +36,36 @@ type SpecDataMapping struct {
 	controlCheckIds        map[string][]string
 }
 
-func (w *rw) Write(ctx context.Context, spec Spec) error {
-	// map spec to key/value map for easy processing
-	smd := w.populateSpecDataToMaps(spec)
-	// map compliance tool to resource data
-	toolResourceMap, err := compliance.MapComplianceToolToResource(w.client, ctx, smd.toolResourceListNames)
-	if err != nil {
-		return err
+func (w *rw) Write(ctx context.Context, plugin Plugin) error {
+	for _, spec := range plugin.GetComplianceSpecs() {
+		// map spec to key/value map for easy processing
+		smd := w.populateSpecDataToMaps(spec)
+		// map compliance tool to resource data
+		toolResourceMap := compliance.MapComplianceToolToResource(w.client, ctx, smd.toolResourceListNames)
+
+		// organized data by check id and it aggregated results
+		checkIdsToResults, err := w.checkIdsToResults(toolResourceMap)
+		if err != nil {
+			return err
+		}
+		// map tool checks results to control check results
+		controlChecks := w.controlChecksByToolChecks(smd, checkIdsToResults)
+		// publish compliance report
+		err = w.createComplianceReport(ctx, spec, controlChecks, plugin)
+		if err != nil {
+			return err
+		}
 	}
-	// organized data by check id and it aggregated results
-	checkIdsToResults, err := w.checkIdsToResults(toolResourceMap)
-	if err != nil {
-		return err
-	}
-	// map tool checks results to control check results
-	controlChecks := w.controlChecksByToolChecks(smd, checkIdsToResults)
-	// publish compliance report
-	return w.createComplianceReport(ctx, spec, controlChecks)
+	return nil
 }
 
-func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlChecks []v1alpha1.ControlCheck) error {
+func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlChecks []v1alpha1.ControlCheck, plugin Plugin) error {
 	var totalFail, totalPass int
-	for _, controlCheck := range controlChecks {
-		controlCheck.FailTotal = controlCheck.FailTotal + totalFail
-		controlCheck.PassTotal = controlCheck.PassTotal + totalPass
+	if len(controlChecks) > 0 {
+		for _, controlCheck := range controlChecks {
+			totalFail = totalFail + controlCheck.FailTotal
+			totalPass = totalPass + controlCheck.PassTotal
+		}
 	}
 	summary := v1alpha1.ClusterComplianceSummary{PassCount: totalPass, FailCount: totalFail}
 	report := v1alpha1.ClusterComplianceReport{
@@ -68,7 +73,7 @@ func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlCheck
 			Name: strings.ToLower(spec.Name),
 		},
 
-		Report: v1alpha1.ClusterComplianceReportData{UpdateTimestamp: metav1.NewTime(time.Now()), Summary: summary, Type: v1alpha1.Compliance{Kind: strings.ToLower(spec.Kind), Name: strings.ToLower(spec.Name), Description: strings.ToLower(spec.Description), Version: spec.Version}, ControlChecks: controlChecks},
+		Report: v1alpha1.ClusterComplianceReportData{UpdateTimestamp: metav1.NewTime(plugin.GetKubernetesCurrentTime()), Summary: summary, Type: v1alpha1.Compliance{Kind: strings.ToLower(spec.Kind), Name: strings.ToLower(spec.Name), Description: strings.ToLower(spec.Description), Version: spec.Version}, ControlChecks: controlChecks},
 	}
 	report.Annotations = map[string]string{
 		v1alpha1.ComplianceReportNextGeneration: spec.GenerationInterval.String(),
@@ -82,13 +87,21 @@ func (w *rw) createComplianceReport(ctx context.Context, spec Spec, controlCheck
 		copied := existing.DeepCopy()
 		copied.Labels = report.Labels
 		copied.Report = report.Report
-		copied.Report.UpdateTimestamp = metav1.NewTime(time.Now())
+		copied.Report.UpdateTimestamp = metav1.NewTime(plugin.GetKubernetesCurrentTime())
 		return w.client.Update(ctx, copied)
 	}
-	if errors.IsNotFound(err) {
+
+	if errors.IsNotFound(err) || generatingReportFirstTime(err) {
 		return w.client.Create(ctx, &report)
 	}
-	return err
+	return w.client.Create(ctx, &report)
+}
+
+func generatingReportFirstTime(err error) bool {
+	if ok := strings.Contains(err.Error(), "the cache is not started, can not read objects"); ok {
+		return true
+	}
+	return false
 }
 
 func (w *rw) controlChecksByToolChecks(smd *SpecDataMapping, checkIdsToResults map[string][]*compliance.ToolCheckResult) []v1alpha1.ControlCheck {
@@ -169,7 +182,7 @@ func (w *rw) populateSpecDataToMaps(spec Spec) *SpecDataMapping {
 		controlCheckIds:        controlCheckIds}
 }
 
-func NewReadWriter(client client.Client) *rw {
+func NewReadWriter(client client.Client) ReadWriter {
 	return &rw{
 		client: client,
 	}

@@ -19,7 +19,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"time"
 )
 
 var (
@@ -231,7 +230,26 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 		}
 	}
 
-	go func() {
+	if operatorConfig.ClusterComplianceEnabled {
+		logger := ctrl.Log.WithName("reconciler").WithName("clustercompliancereport")
+		cc := &controller.ClusterComplianceReportReconciler{
+			Logger:     logger,
+			Config:     operatorConfig,
+			Client:     mgr.GetClient(),
+			ReadWriter: compliance.NewReadWriter(mgr.GetClient()),
+			Plugin:     compliance.NewCompliancePlugin(ext.NewSystemClock(), logger),
+		}
+		// trigger initial compliance report
+		err := cc.ReadWriter.Write(context.Background(), cc.Plugin)
+		if err != nil {
+			cc.Logger.V(2).Info("failed to generate compliance reports")
+		}
+		if err := cc.SetupWithManager(mgr); err != nil {
+			return fmt.Errorf("unable to setup clustercompliancereport reconciler: %w", err)
+		}
+	}
+
+	/*go func() {
 		rw := compliance.NewReadWriter(mgr.GetClient())
 		specs := compliance.LoadClusterComplianceSpecs()
 		for _, spec := range specs {
@@ -239,7 +257,7 @@ func Start(ctx context.Context, buildInfo starboard.BuildInfo, operatorConfig et
 			fmt.Println(err)
 			time.Sleep(10 * time.Second)
 		}
-	}()
+	}()*/
 
 	setupLog.Info("Starting controllers manager")
 	if err := mgr.Start(ctx); err != nil {

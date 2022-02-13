@@ -2,6 +2,7 @@ package controller
 
 import (
 	"fmt"
+	"github.com/aquasecurity/starboard/pkg/compliance"
 	"github.com/aquasecurity/starboard/pkg/operator/predicate"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -20,6 +21,8 @@ type ClusterComplianceReportReconciler struct {
 	logr.Logger
 	etc.Config
 	client.Client
+	compliance.ReadWriter
+	compliance.Plugin
 }
 
 func (r *ClusterComplianceReportReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -27,7 +30,6 @@ func (r *ClusterComplianceReportReconciler) SetupWithManager(mgr ctrl.Manager) e
 	if err != nil {
 		return err
 	}
-
 	err = ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.ClusterComplianceReport{}, builder.WithPredicates(
 			predicate.Not(predicate.IsBeingTerminated),
@@ -63,16 +65,18 @@ func (r *ClusterComplianceReportReconciler) reconcileComplianceReport() reconcil
 			return ctrl.Result{}, fmt.Errorf("failed parsing %v with value %v %w", v1alpha1.ComplianceReportNextGeneration, ReportNextGenerationAnnotationStr, err)
 		}
 		creationTime := report.Report.UpdateTimestamp
-		reportExpired, durationToNextGeneration := intervalExceeded(reportTTLTime, creationTime.Time)
+		generateNewReport, durationToNextGeneration := intervalExceeded(reportTTLTime, creationTime.Time)
 		if err != nil {
 			return ctrl.Result{}, err
 		}
-		if reportExpired {
-			//@Todo update report
+		if generateNewReport {
+			err := r.ReadWriter.Write(ctx, r.Plugin)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("failed to generate new report %v", err)
+			}
 			return ctrl.Result{}, nil
 		}
 		log.V(1).Info("RequeueAfter", "durationToNextGeneration", durationToNextGeneration)
 		return ctrl.Result{RequeueAfter: durationToNextGeneration}, nil
-		return ctrl.Result{}, nil
 	}
 }

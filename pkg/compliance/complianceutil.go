@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
-func LoadClusterComplianceSpecs() []Spec {
+func LoadClusterComplianceSpecs() ([]Spec, error) {
 	specs := make([]Spec, 0)
 	specPath := "./specs/"
 	box := packr.Folder(specPath)
@@ -15,14 +15,14 @@ func LoadClusterComplianceSpecs() []Spec {
 	for _, file := range fileList {
 		specString, err := box.FindString(fmt.Sprintf("%s%s", "./", file))
 		if err != nil {
-			panic(fmt.Sprintf("failed to load compliance specs %s", err.Error()))
+			fmt.Errorf(fmt.Sprintf("failed to load compliance specs %s", err.Error()))
 		}
 		var spec Spec
 		err = yaml.Unmarshal([]byte(specString), &spec)
 		if err != nil {
-			panic(fmt.Sprintf("failed to load compliance specs %s", err.Error()))
+			fmt.Errorf(fmt.Sprintf("failed to load compliance specs %s", err.Error()))
 		}
 		specs = append(specs, spec)
 	}
-	return specs
+	return specs, nil
 }
