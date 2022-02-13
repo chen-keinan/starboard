@@ -41,5 +41,5 @@ spec:
     kind: ClusterComplianceReport
     listKind: ClusterComplianceReportsList
     categories: []
-      - compliance
     shortNames:
+      - compliance
