@@ -1,4 +1,4 @@
-piVersion: apiextensions.k8s.io/v1
+apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: clustercompliancereports.aquasecurity.github.io
@@ -12,7 +12,7 @@ spec:
       served: true
       storage: true
       additionalPrinterColumns:
-        - jsonPath: .complience.report.name
+        - jsonPath: .report.type.name
           type: string
           name: report
           description: The name of the complience report
@@ -41,5 +41,5 @@ spec:
     kind: ClusterComplianceReport
     listKind: ClusterComplianceReportsList
     categories: []
-    shortNames:
       - compliance
+    shortNames:

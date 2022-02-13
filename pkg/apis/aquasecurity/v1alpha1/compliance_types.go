@@ -40,7 +40,7 @@ type ControlCheck struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
-	PassTotal   int    `json:"pass_total"`
-	FailTotal   int    `json:"fail_total"`
+	PassTotal   int    `json:"passTotal"`
+	FailTotal   int    `json:"failTotal"`
 	Severity    string `json:"severity"`
 }
