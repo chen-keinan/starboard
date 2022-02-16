@@ -78,6 +78,9 @@ func (ac configAudit) MapReportDataToMap(objType string, objList client.ObjectLi
 		return nil
 	}
 	for _, item := range cb.Items {
+		if item.Report.Scanner.Name != "Conftest" {
+			continue
+		}
 		name := item.GetName()
 		nameSpace := item.Namespace
 		for _, check := range item.Report.Checks {
