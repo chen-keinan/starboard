@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	kubeBenchCmdShort = "Run the CIS Kubernetes Benchmark for each node of your cluster"
+	kubeBenchCmdShort = "Run scan on cluster on vulnerabilities, configAudit and cis-benchmark"
 )
 
 func NewScanKubeBenchReportsCmd(cf *genericclioptions.ConfigFlags) *cobra.Command {
@@ -35,69 +35,73 @@ func NewScanKubeBenchReportsCmd(cf *genericclioptions.ConfigFlags) *cobra.Comman
 
 func ScanKubeBenchReports(cf *genericclioptions.ConfigFlags) func(cmd *cobra.Command, args []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		ctx := context.Background()
-		kubeConfig, err := cf.ToRESTConfig()
-		if err != nil {
-			return err
-		}
-		kubeClientset, err := kubernetes.NewForConfig(kubeConfig)
-		if err != nil {
-			return err
-		}
-		opts, err := getScannerOpts(cmd)
-		if err != nil {
-			return err
-		}
-		config, err := starboard.NewConfigManager(kubeClientset, starboard.NamespaceName).Read(ctx)
-		if err != nil {
-			return err
-		}
-		scheme := starboard.NewScheme()
-		kubeClient, err := client.New(kubeConfig, client.Options{
-			Scheme: scheme,
-		})
-		if err != nil {
-			return err
-		}
-
-		plugin := kubebench.NewKubeBenchPlugin(ext.NewSystemClock(), config)
-		scanner := kubebench.NewScanner(scheme, kubeClientset, plugin, config, opts)
-		writer := kubebench.NewReadWriter(kubeClient)
-
-		nodes, err := GetNodes(ctx, kubeClientset, args...)
-		if err != nil {
-			return fmt.Errorf("getting nodes: %w", err)
-		}
-
-		// TODO Move this logic to scanner.ScanAll() method. We should not mix discovery / scanning logic with the CLI.
-		var wg sync.WaitGroup
-
-		for _, node := range nodes {
-			nodeValueLabel, exist := node.GetObjectMeta().GetLabels()[corev1.LabelOSStable]
-			if exist && nodeValueLabel != "linux" {
-				klog.V(3).Infof("Skipping non linux node: %v %v", node.Name, node.Labels)
-				continue
-			}
-
-			wg.Add(1)
-			go func(node corev1.Node) {
-				defer wg.Done()
-				report, err := scanner.Scan(ctx, node)
-				if err != nil {
-					klog.Errorf("Error while running kube-bench on node: %s: %v", node.Name, err)
-					return
-				}
-				err = writer.Write(ctx, report)
-				if err != nil {
-					klog.Errorf("Error while writing kube-bench report for node: %s: %v", node.Name, err)
-					return
-				}
-			}(node)
-		}
-
-		wg.Wait()
-		return nil
+		return scanCisBench(cmd, args, cf)
 	}
+}
+
+func scanCisBench(cmd *cobra.Command, args []string, cf *genericclioptions.ConfigFlags) error {
+	ctx := context.Background()
+	kubeConfig, err := cf.ToRESTConfig()
+	if err != nil {
+		return err
+	}
+	kubeClientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return err
+	}
+	opts, err := getScannerOpts(cmd)
+	if err != nil {
+		return err
+	}
+	config, err := starboard.NewConfigManager(kubeClientset, starboard.NamespaceName).Read(ctx)
+	if err != nil {
+		return err
+	}
+	scheme := starboard.NewScheme()
+	kubeClient, err := client.New(kubeConfig, client.Options{
+		Scheme: scheme,
+	})
+	if err != nil {
+		return err
+	}
+
+	plugin := kubebench.NewKubeBenchPlugin(ext.NewSystemClock(), config)
+	scanner := kubebench.NewScanner(scheme, kubeClientset, plugin, config, opts)
+	writer := kubebench.NewReadWriter(kubeClient)
+
+	nodes, err := GetNodes(ctx, kubeClientset, args...)
+	if err != nil {
+		return fmt.Errorf("getting nodes: %w", err)
+	}
+
+	// TODO Move this logic to scanner.ScanAll() method. We should not mix discovery / scanning logic with the CLI.
+	var wg sync.WaitGroup
+
+	for _, node := range nodes {
+		nodeValueLabel, exist := node.GetObjectMeta().GetLabels()[corev1.LabelOSStable]
+		if exist && nodeValueLabel != "linux" {
+			klog.V(3).Infof("Skipping non linux node: %v %v", node.Name, node.Labels)
+			continue
+		}
+
+		wg.Add(1)
+		go func(node corev1.Node) {
+			defer wg.Done()
+			report, err := scanner.Scan(ctx, node)
+			if err != nil {
+				klog.Errorf("Error while running kube-bench on node: %s: %v", node.Name, err)
+				return
+			}
+			err = writer.Write(ctx, report)
+			if err != nil {
+				klog.Errorf("Error while writing kube-bench report for node: %s: %v", node.Name, err)
+				return
+			}
+		}(node)
+	}
+
+	wg.Wait()
+	return nil
 }
 
 // GetNodes returns nodes by names. If the list of names is empty it returns all nodes.
