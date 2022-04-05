@@ -16,7 +16,6 @@ func NewScanCmd(buildInfo starboard.BuildInfo, cf *genericclioptions.ConfigFlags
 	scanCmd.AddCommand(NewScanKubeBenchReportsCmd(cf))
 	scanCmd.AddCommand(NewScanKubeHunterReportsCmd(cf))
 	scanCmd.AddCommand(NewScanVulnerabilityReportsCmd(buildInfo, cf))
-	scanCmd.AddCommand(NewScanClusterCmd(cf))
 
 	return scanCmd
 }
